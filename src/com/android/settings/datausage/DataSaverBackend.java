@@ -30,7 +30,6 @@ import com.android.settingslib.utils.ThreadUtils;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 
 public class DataSaverBackend {
 
@@ -124,32 +123,52 @@ public class DataSaverBackend {
     }
 
     private void loadUidPolicies(int policy) {
-        final int[] uidsWithPolicy = mPolicyManager.getUidsWithPolicy(policy);
-        for (int uid : uidsWithPolicy) {
-            setCachedUidPolicyFlag(uid, policy, true);
+        final int[] uidsWithPolicyArray = mPolicyManager.getUidsWithPolicy(policy);
+        final ArrayList<Integer> uidsWithPolicy = new ArrayList<>(uidsWithPolicyArray.length);
+        for (final int uid : uidsWithPolicyArray) {
+            uidsWithPolicy.add(uid);
         }
+        // Update existing cached UID policies.
         for (int i = 0; i < mUidPolicies.size(); i++) {
-            final int uid = mUidPolicies.keyAt(i);
-            if (!Arrays.asList(uidsWithPolicy).contains(uid)) {
-                setCachedUidPolicyFlag(uid, policy, false);
+            final Integer cachedEntryUid = mUidPolicies.keyAt(i);
+            if (uidsWithPolicy.remove(cachedEntryUid)) {
+                // UID had the policy. It was removed so we don't have to process it twice.
+                setCachedUidPolicyFlagAt(i, policy, true);
+            } else {
+                // UID does not have the policy.
+                setCachedUidPolicyFlagAt(i, policy, false);
             }
         }
+        // Add policies for remaining UIDs, which did not have cached policies, so we're it.
+        for (final int uid : uidsWithPolicy) {
+            mUidPolicies.put(uid, policy);
+        }
     }
 
-    private int setCachedUidPolicyFlag(int uid, int policy, boolean add) {
-        final int currentPolicy = mUidPolicies.get(uid, POLICY_NONE);
+    private void setCachedUidPolicyFlag(int uid, int policy, boolean add) {
+        final int index = mUidPolicies.indexOfKey(uid);
+        if (index < 0) {
+            if (add) {
+                mUidPolicies.put(uid, policy);
+            }
+            return;
+        }
+        setCachedUidPolicyFlagAt(index, policy, add);
+    }
+
+    private void setCachedUidPolicyFlagAt(int index, int policy, boolean add) {
+        final int currentPolicy = mUidPolicies.valueAt(index);
         final int newPolicy = add ? (currentPolicy | policy) : (currentPolicy & ~policy);
-        mUidPolicies.put(uid, newPolicy);
-        return newPolicy;
+        mUidPolicies.setValueAt(index, newPolicy);
     }
 
-    private int setUidPolicyFlag(int uid, int policy, boolean add) {
+    private void setUidPolicyFlag(int uid, int policy, boolean add) {
         if (add) {
             mPolicyManager.addUidPolicy(uid, policy);
         } else {
             mPolicyManager.removeUidPolicy(uid, policy);
         }
-        return setCachedUidPolicyFlag(uid, policy, add);
+        setCachedUidPolicyFlag(uid, policy, add);
     }
 
     private boolean isUidPolicyFlagSet(int uid, int policy) {
